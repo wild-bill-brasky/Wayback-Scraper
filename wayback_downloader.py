@@ -1,7 +1,7 @@
 from random import randrange
 from datetime import datetime
 from datetime import timedelta
-import requests, trafilatura, re, os
+import requests, trafilatura, re, os, time
 """
 https://github.com/proxifly/free-proxy-list/tree/main?tab=readme-ov-file
 """
@@ -23,16 +23,16 @@ class GetParams():
     
     def get_proxies(self): # Pulls from an actively maintained proxy list and selects random proxy servers to for get request in the NetOps class
         resp = requests.get('https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/protocols/http/data.txt', verify=True).text.split('\n')
-        for i in range(0,51):
+        for i in range(0,101):
             index = randrange(0, len(resp))
             self.proxy_list.append(resp[index])
-            print(resp[index])
+        print('New proxy list generated')
         return
 
 class NetOps():
 
     def __init__(self):
-        self.base_url = 'https://web.archive.org/web/var_date000000/https://www.bleepingcomputer.com/' #Archive url
+        self.base_url = 'https://web.archive.org/web/var_date000000/https://blog.talosintelligence.com/' #Archive url
         self.punc_reg = r'[^\w\s]'
         self.response = None
         self.working_date = None
@@ -41,16 +41,18 @@ class NetOps():
         
     def get_resp(self, url):
         try:
-            proxy_index = randrange(0, len(get_params.proxy_list)) # Rotate proxy if one fails
+            proxy_index = randrange(0, len(get_params.proxy_list))
             print(get_params.proxy_list[proxy_index])
             return requests.get(url, verify=True, timeout=60, proxies={'http' : get_params.proxy_list[proxy_index]}, headers=get_params.change_agents()).text
         except Exception as e:
             print(f'Error with GET request to {url}: {e}')
-            self.url_trap(f'{url}')
-        except ConnectionRefusedError:
-            print(f'Error with GET request to {url}: {e}') # Changes out proxies if one is a fucking failure
-            get_params.get_proxies()
-            self.get_resp(url)
+            self.reset()
+
+    def reset(self):
+        print('Starting over...')
+        time.sleep(10)
+        self.iterator()
+        return
     
     def traf_func(self, downloaded):
         try:
@@ -79,11 +81,9 @@ class NetOps():
         return self.var_date.strftime('%Y%m%d')
     
     def file_writer(self, clean_data):
-        true_date = self.var_date - timedelta(days=1) #Requests to Wayback return a date 1 day later than requested in the Get request for some fucking reason
-        true_date = true_date.strftime('%Y%m%d')
-        with open(f'bleeping_computer_{true_date}.txt', 'w', encoding='utf-8') as file:
+        with open(f'{os.getcwd()}/talos_intel/talos_intel_{self.get_true()}.txt', 'w', encoding='utf-8') as file:
             file.write(clean_data)
-        print(f'{true_date} processing completed.')
+        print(f'{self.get_true()} processing completed.')
         return
     
     def iterator(self):
@@ -101,12 +101,14 @@ class NetOps():
         return
     
     def file_check(self): # Picks back up where you left off if scraping is interrupted
-        true_date = self.var_date - timedelta(days=1) #Requests to Wayback return a date 1 day later than requested in the Get request for some fucking reason
-        true_date = true_date.strftime('%Y%m%d')
-        if os.path.exists(f'bleeping_computer_{true_date}.txt'):
+        if os.path.exists(f'{os.getcwd()}/talos_intel/talos_intel_{self.get_true()}.txt'):
             return True
         else:
             return False
+        
+    def get_true(self):
+        true_date = self.var_date - timedelta(days=1) #Requests to Wayback return a date 1 day later than requested in the Get request for some fucking reason
+        return true_date.strftime('%Y%m%d')
 
     def get_time(self):
         return datetime.today().strftime('%Y-%m-%d %H:%M:%S')
