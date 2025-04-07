@@ -52,12 +52,14 @@ class GetParams():
 class NetOps():
 
     def __init__(self):
-        self.base_url = f'https://www.cisa.gov/news-events/cybersecurity-advisories?page={self.page_num}' #https://www.cisa.gov/known-exploited-vulnerabilities-catalog - Another good source
+        #https://www.cisa.gov/known-exploited-vulnerabilities-catalog - Another good source
         self.punc_reg = r'[^\w\s]'
         self.urlpat = r'href=[\'"]?([^\'" >]+)'
         self.flat_data = None
         self.page_urls = None
         self.page_num = 0
+        self.file_name = None
+        self.base_url = f'https://www.cisa.gov/news-events/cybersecurity-advisories?page={self.page_num}' 
         
     def get_resp(self, url):
         try:
@@ -70,23 +72,7 @@ class NetOps():
             return trafilatura.extract(downloaded, with_metadata=True, deduplicate=True, include_tables=True, include_comments=True, include_links=False).split('\n')
         except Exception as e:
             print(f'Error with response object: {e}')
-    
-    def result_parse(self, result):
-        clean_data = []
-        for i in result:
-            i = i.lower()
-            if 'url:' in i or 'date:' in i:
-                clean_data.append(f'{i} ')
-            elif 'https://' in i:
-                i = i.replace('[', '').replace(']', '').replace(')', '').replace('(', '').replace('→', '')
-                clean_data.append(f'{i} ')
-            else:
-                i = re.sub(self.punc_reg, '', i) # Uses regex to clean data of any punctuation
-                clean_data.append(f'{i} ')
-        self.flat_data = ' '.join(clean_data)
-        self.file_writer(self.flat_data)
-        return
-    
+        
     def iterator(self):
         for i in range(1,11): # It all starts here dawg
             try:
@@ -102,18 +88,26 @@ class NetOps():
         for j in self.page_urls:
             if 'https://' not in j:
                 j = f'https://{j}'
+            self.file_name = self.filename_creator(j)
+            if self.file_check():
+                continue
             article = self.get_resp(j)
-            self.traf_func(article)
+            extracted_article = self.traf_func(article)
+            self.result_parse(extracted_article)
         return
+    
+    def filename_creator(self, url):
+        url = url.split('/')[-2:]
+        return '_'.join(url)
 
     def file_writer(self, clean_data):
-        with open(f'{os.getcwd()}/bleeping_computer/bleeping_computer_{self.get_true()}.txt', 'w', encoding='utf-8') as file:
+        with open(f'{self.file_name}.txt', 'w', encoding='utf-8') as file:
             file.write(clean_data)
-        print(f'{self.get_true()} processing completed.')
+        print(f'{self.file_name} processing completed.')
         return
     
     def file_check(self): # Picks back up where you left off if scraping is interrupted
-        if os.path.exists(f'{os.getcwd()}/bleeping_computer/bleeping_computer_{self.get_true()}.txt'):
+        if os.path.exists(f'{self.file_name}.txt'):
             return True
         else:
             return False
