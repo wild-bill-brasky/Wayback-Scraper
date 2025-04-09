@@ -1,6 +1,5 @@
 from random import randrange
 from datetime import datetime
-from datetime import timedelta
 import requests, trafilatura, re, os, time
 """
 https://github.com/proxifly/free-proxy-list/tree/main?tab=readme-ov-file
@@ -52,14 +51,13 @@ class GetParams():
 class NetOps():
 
     def __init__(self):
-        #https://www.cisa.gov/known-exploited-vulnerabilities-catalog - Another good source
         self.punc_reg = r'[^\w\s]'
-        self.urlpat = r'href=[\'"]?([^\'" >]+)'
+        self.urlpat = r'href="([^"]*)"' #r'<a\s+href=["\'](.*?)["\']'
         self.flat_data = None
-        self.page_urls = None
-        self.page_num = 0
+        self.page_urls = []
         self.file_name = None
-        self.base_url = f'https://www.cisa.gov/news-events/cybersecurity-advisories?page={self.page_num}' 
+        self.base_url = f'https://www.cisa.gov/news-events/cybersecurity-advisories?page=' # Does not increase with below code
+        self.page_num = 120
         
     def get_resp(self, url):
         try:
@@ -74,11 +72,22 @@ class NetOps():
             print(f'Error with response object: {e}')
         
     def iterator(self):
-        for i in range(1,11): # It all starts here dawg
+        for i in range(0,200): # It all starts here dawg
             try:
-                main_page = self.get_resp(self.base_url)
-                self.page_num = self.page_num+1
-                self.page_urls = re.findall(self.urlpat, main_page)
+                time.sleep(1)
+                main_page = self.get_resp(f'{self.base_url}{str(self.page_num)}')
+                print(f'{self.base_url}{str(self.page_num)}')
+                self.page_num=self.page_num+1
+                regex_links = re.findall(self.urlpat, main_page)
+                for m in regex_links:
+                    if 'news-events/alerts' in m or 'news-events/ics-advisories/' in m or '/news-events/analysis-reports' in m: #Figure out regex to extract analysis-reports links
+                        m = f'https://www.cisa.gov{m}'
+                        self.page_urls.append(m)
+                    else:
+                        continue
+                print(f'{len(self.page_urls)} Articles Extracted')
+                self.url_iterator()
+                self.page_urls.clear()
             except Exception as e:
                 print(f'Error with stuff: {e}')
                 continue
@@ -86,28 +95,44 @@ class NetOps():
 
     def url_iterator(self):
         for j in self.page_urls:
-            if 'https://' not in j:
-                j = f'https://{j}'
-            self.file_name = self.filename_creator(j)
+            self.file_name = self.filename_creator(j, 4)
             if self.file_check():
+                print(f'{self.file_name} - File already exists')
                 continue
+            time.sleep(5)
             article = self.get_resp(j)
             extracted_article = self.traf_func(article)
             self.result_parse(extracted_article)
         return
     
-    def filename_creator(self, url):
-        url = url.split('/')[-2:]
+    def result_parse(self, result):
+        clean_data = []
+        for i in result:
+            i = i.lower().strip()
+            if 'url:' in i or 'date:' in i:
+                clean_data.append(f'{i} ')
+            elif 'https://' in i:
+                i = i.replace('[', '').replace(']', '').replace(')', '').replace('(', '').replace('→', '')
+                clean_data.append(f'{i} ')
+            else:
+                i = re.sub(self.punc_reg, '', i) # Uses regex to clean data of any punctuation
+                clean_data.append(f'{i} ')
+        self.flat_data = ''.join(clean_data)
+        self.file_writer(self.flat_data)
+        return
+    
+    def filename_creator(self, url, space):
+        url = url.split('/')[-space:]
         return '_'.join(url)
 
     def file_writer(self, clean_data):
-        with open(f'{self.file_name}.txt', 'w', encoding='utf-8') as file:
+        with open(f'{os.getcwd()}/cisa_advisories/{self.file_name}.txt', 'w', encoding='utf-8') as file:
             file.write(clean_data)
         print(f'{self.file_name} processing completed.')
         return
     
     def file_check(self): # Picks back up where you left off if scraping is interrupted
-        if os.path.exists(f'{self.file_name}.txt'):
+        if os.path.exists(f'{os.getcwd()}/cisa_advisories/{self.file_name}.txt'):
             return True
         else:
             return False
