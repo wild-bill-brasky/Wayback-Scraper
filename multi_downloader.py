@@ -3,19 +3,33 @@ from datetime import datetime
 import requests, trafilatura, re, os, time
 """
 https://github.com/proxifly/free-proxy-list/tree/main?tab=readme-ov-file
+{datetime.today().strftime('%Y_%m_%d')}
 """
 
-class SourceMeta:
+class SourceMeta: # This class is used to store objects in dictionaries specific to individual websites - These are called in the NetOps class
     cisa_advise = {'url_strings': ['news-events/alerts', 'news-events/ics-advisories/', '/news-events/analysis-reports'], 
                    'base_url': 'https://www.cisa.gov/news-events/cybersecurity-advisories?page=',
                    'url_prefix': 'https://www.cisa.gov',
-                   'home_dir': f'{os.getcwd()}/cisa_advisories/{datetime.today().strftime('%Y_%m_%d')}'
+                   'home_dir': 'cisa_advisories'
                    }
     
     bleeping_comp = {'url_strings': ['/tutorials/', '/news/''/virus-removal/', '/guides/'],
                      'base_url': 'https://www.bleepingcomputer.com/page/',
                      'url_prefix': 'https://bleepingcomputer.com',
-                     'home_dir': f'{os.getcwd()}/bleeping_computer/{datetime.today().strftime('%Y_%m_%d')}'
+                     'home_dir': 'bleeping_computer'
+                     }
+    
+    the_register = {'url_strings': ['/2025/'], # NEEDS ATTENTION Uses the days date in MM/DD numeric format eg /2025/04/07/asia_tech_news_in_brief/ - use date substraction equation from wayback downloader script
+                     'base_url': 'https://www.theregister.com/earlier/', #Increases linearly from 1 eg https://www.theregister.com/earlier/1/
+                     'url_prefix': 'https://www.theregister.com/',
+                     'home_dir': 'the_register'
+                     }
+    
+    dark_reading = {'url_strings': ['/cyberattacks-data-breaches/', '/threat-intelligence/', '/vulnerabilities-threats/', '/cloud-security/',
+                                    '/endpoint-security/', '/cybersecurity-operations/', 'application-security'], 
+                     'base_url': 'https://www.darkreading.com/latest-news?page=', 
+                     'url_prefix': 'https://www.darkreading.com/',
+                     'home_dir': 'dark_reading'
                      }
     
 class GetParams():
@@ -44,7 +58,7 @@ class GetParams():
         self.get_https_prox()
         return
     
-    def get_https_prox(self):
+    def get_https_prox(self): # Pulls from same source as above function, except it's a much shorter list for HTTPS proxies
         resp = requests.get('https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/protocols/https/data.txt', verify=True).text.split('\n')
         for i in range(0, len(resp)):
             index = randrange(0, len(resp))
@@ -52,12 +66,12 @@ class GetParams():
         print('New HTTPS proxy list generated')
         return
     
-    def build_proxy_obj(self):
+    def build_proxy_obj(self): # Builds proxy object to be used in GET requests in the NetOps class
         http_proxy_index = randrange(0, len(self.http_proxy_list))
         https_proxy_index = randrange(0, len(self.https_proxy_list))
         proxies = {
             'http' : self.http_proxy_list[http_proxy_index],
-            #'https': self.https_proxy_list[https_proxy_index]
+            'https': self.https_proxy_list[https_proxy_index]
         }
         print(f'{get_params.http_proxy_list[http_proxy_index]} & {get_params.https_proxy_list[https_proxy_index]}')
         return proxies
@@ -65,13 +79,12 @@ class GetParams():
 class NetOps():
 
     def __init__(self, source):
-        self.punc_reg = r'[\.\?\!]{2,}' #r'[^\w\s]'
+        self.punc_reg = r'[\.\?\!]{2,}' #r'[^\w\s]' Uncommented regex removes duplicate characters eg !! .. - Commented regex removes all punctuation and is aggressive AF.
         self.urlpat = r'href="([^"]*)"' #r'<a\s+href=["\'](.*?)["\']'
         self.flat_data = None
         self.page_urls = []
         self.file_name = None
-        self.base_url = f'https://www.cisa.gov/news-events/cybersecurity-advisories?page=' # Does not increase with below code
-        self.page_num = 37
+        self.page_num = 1
         self.source = source
         
     def get_resp(self, url):
@@ -90,13 +103,13 @@ class NetOps():
         for i in range(0,100): # It all starts here dawg
             try:
                 time.sleep(1)
-                main_page = self.get_resp(f'{self.base_url}{str(self.page_num)}')
-                print(f'{self.base_url}{str(self.page_num)}')
+                main_page = self.get_resp(f'{self.source['base_url']}{str(self.page_num)}') # Concatenates base url and incrementally increasing page number
+                print(f'{self.source['base_url']}{str(self.page_num)}')
                 self.page_num=self.page_num+1
                 self.url_rip(main_page)
                 print(f'{len(self.page_urls)} Articles Extracted')
                 self.url_iterator()
-                self.page_urls.clear()
+                self.page_urls.clear() # Clear scraped urls object for next iteration
             except Exception as e:
                 print(f'Error with stuff: {e}')
                 continue
@@ -115,28 +128,28 @@ class NetOps():
         return
     
     def url_rip(self, main_page):
-        for m in re.findall(self.urlpat, main_page):
-            if 'news-events/alerts' in m or 'news-events/ics-advisories/' in m or '/news-events/analysis-reports' in m:
-                m = f'https://www.cisa.gov{m}'
-                self.page_urls.append(m)
-            else:
-                continue
+        for m in re.findall(self.urlpat, main_page): # Add if else condition for regex url matches that already have the base url
+            for i in self.source['url_strings']:
+                if i in m:
+                    m = f'{self.source['url_prefix']}{m}'
+                    self.page_urls.append(m)
+                else:
+                    continue
         return
     
     def result_parse(self, result):
         clean_data = []
         for i in result:
-            i = i.strip()
+            i = i.strip() # Add .lower() method to remove capitaliztion, however current LLM documentation states keeping caps is useful to establish context and acronyms for RAG
             if 'date:' in i:
                 clean_data.append(f'{i}')
-                clean_data.append('tags: cybersecurity, cyber, CISA, CTI, counter threat intelligence, counter intelligence')
-            elif "---" in i:
+            elif "---" in i: # Consider removal or specifying CISA Advisories
                 continue
             else:
                 i = i.replace("®", "").replace("©", "").replace("™", "").replace("—", "").replace("— ", "").replace('-', '').replace('- ', '')
                 i = re.sub(self.punc_reg, '', i) # Uses regex to clean data of any punctuation
                 clean_data.append(f'{i}')
-        self.flat_data = '\n'.join(clean_data).strip()
+        self.flat_data = '\n'.join(clean_data).strip() # Join all items in list with a newline separator to give LLM more context
         self.file_writer(self.flat_data)
         return
     
@@ -144,14 +157,14 @@ class NetOps():
         url = url.split('/')[-space:]
         return '_'.join(url)
 
-    def file_writer(self, clean_data):
-        with open(f'{os.getcwd()}/cisa_advisories/{self.file_name}.txt', 'w', encoding='utf-8') as file:
+    def file_writer(self, clean_data): # Write that shit to a txt file for future embedding and vectorizing operations
+        with open(f'{os.getcwd()}/{self.source['home_dir']}/{self.file_name}.txt', 'w', encoding='utf-8') as file:
             file.write(clean_data)
         print(f'{self.file_name} processing completed.')
         return
     
     def file_check(self): # Picks back up where you left off if scraping is interrupted
-        if os.path.exists(f'{os.getcwd()}/cisa_advisories/{self.file_name}.txt'):
+        if os.path.exists(f'{os.getcwd()}/{self.source['home_dir']}/{self.file_name}.txt'):
             return True
         else:
             return False
@@ -159,7 +172,7 @@ class NetOps():
     def get_time(self):
         return datetime.today().strftime('%Y-%m-%d %H:%M:%S')
     
-    def logging(self, error):
+    def logging(self, error): # A logging function I'll never use
         log_time = self.get_time()
         with open('hist_dl.log', 'a') as alert_file:
             alert_file.write(f'{log_time}:{error}\n')
@@ -168,5 +181,5 @@ class NetOps():
 if __name__ == '__main__':
     get_params = GetParams()
     get_params.get_http_prox()
-    net_ops = NetOps('cisa_advise')
+    net_ops = NetOps(SourceMeta.cisa_advise) # Change the object passed to NetOps to change the website that is targeted
     net_ops.iterator()
